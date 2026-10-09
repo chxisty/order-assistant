@@ -34,7 +34,19 @@ class AIService:
     @property
     def groq_api_key(self) -> str:
         """Dynamically resolve GROQ_API_KEY from environment."""
-        return os.getenv("GROQ_API_KEY", "").strip().strip('"').strip("'")
+        raw_key = os.getenv("GROQ_API_KEY", "").strip()
+        return raw_key.strip('"').strip("'")
+
+    @property
+    def is_groq_configured(self) -> bool:
+        """Return True if a valid, non-placeholder GROQ_API_KEY is configured in environment."""
+        key = self.groq_api_key
+        if not key:
+            return False
+        k_lower = key.lower()
+        if "your_groq_api_key" in k_lower or "your_key" in k_lower or key.startswith("gsk_your_"):
+            return False
+        return True
 
     @property
     def groq_base_url(self) -> str:
@@ -59,7 +71,7 @@ class AIService:
     @property
     def model_name(self) -> str:
         """Dynamically resolve active Groq model identifier from environment."""
-        if self.groq_api_key:
+        if self.is_groq_configured:
             raw_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip().strip('"').strip("'")
             return raw_model or "openai/gpt-oss-120b"
         return "local-fallback"
@@ -72,13 +84,37 @@ class AIService:
             return Groq(api_key=key, base_url=self.groq_base_url)
         return Groq(api_key=key)
 
+    def _log_groq_error(self, context: str, err: Exception) -> Dict[str, Any]:
+        """
+        Safely log diagnostic details for Groq exceptions without leaking keys or credentials.
+        Extracts exception type, HTTP status code (if available), and sanitized message.
+        """
+        err_type = type(err).__name__
+        status_code = getattr(err, "status_code", None)
+        if status_code is None and hasattr(err, "code"):
+            status_code = getattr(err, "code", None)
+
+        err_str = str(err)
+        # Redact API keys or Bearer tokens from error string
+        sanitized_msg = re.sub(r'(gsk_|sk-|AIza|Bearer\s+)[a-zA-Z0-9_-]+', '[REDACTED_SECRET]', err_str)
+
+        logger.error(
+            f"Groq API Error during [{context}] - Exception: {err_type}, "
+            f"HTTP Status: {status_code}, Message: {sanitized_msg}"
+        )
+        return {
+            "err_type": err_type,
+            "status_code": status_code,
+            "sanitized_msg": sanitized_msg
+        }
+
     def process_chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
         """
         Processes user query using Groq API tool calling.
         If Groq is unconfigured or rate limited/error occurs, falls back to intelligent local data engine.
         Returns tuple of (assistant_reply, executed_tool_calls).
         """
-        if self.groq_api_key:
+        if self.is_groq_configured:
             return self._process_chat_groq(user_message, history)
 
         # No API Key configured -> Use Intelligent Local Data Engine
@@ -90,7 +126,7 @@ class AIService:
         try:
             client = self._get_groq_client()
         except Exception as e:
-            logger.warning(f"Could not initialize Groq client: {e}. Falling back to local data engine.")
+            self._log_groq_error("Groq Client Initialization", e)
             reply, tools = self._local_fallback_process(user_message)
             return "*(Groq API Initialization Error: Using local data engine)*\n\n" + reply, tools
 
@@ -107,8 +143,6 @@ class AIService:
 
         executed_tools: List[Dict[str, Any]] = []
         max_turns = 5
-
-        # Single active model candidate (no deprecated fallback models)
         target_model = self.model_name
 
         for turn in range(max_turns):
@@ -121,17 +155,16 @@ class AIService:
                     temperature=0.2
                 )
             except Exception as api_err:
-                err_str = str(api_err)
+                diag = self._log_groq_error("Chat Completion", api_err)
+                err_str = str(api_err).lower()
+                status_code = diag.get("status_code")
 
-                # Safe logging: redact sensitive key strings
-                safe_err_log = re.sub(r'(gsk_|sk-|AIza)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
-                logger.error(f"Groq API Error: {safe_err_log}")
-
-                # Clear, user-friendly error messages without exposing raw provider exception details
-                if "401" in err_str or "invalid_api_key" in err_str.lower() or "authentication" in err_str.lower():
+                if status_code == 401 or "401" in err_str or "invalid_api_key" in err_str or "authentication" in err_str:
                     note_prefix = "*(Groq API Authentication Error: Switched to local data engine)*\n\n"
-                elif "429" in err_str or "rate" in err_str.lower() or "quota" in err_str.lower():
+                elif status_code == 429 or "429" in err_str or "rate" in err_str or "quota" in err_str:
                     note_prefix = "*(Groq API Rate Limit Exceeded: Switched to local data engine)*\n\n"
+                elif status_code == 404 or "404" in err_str or "not_found" in err_str:
+                    note_prefix = "*(Groq API Model Not Found: Switched to local data engine)*\n\n"
                 else:
                     note_prefix = "*(Groq API Service Notice: Switched to local data engine)*\n\n"
 
@@ -211,7 +244,7 @@ class AIService:
             f"4. **Notable Insights & Operational Recommendations**"
         )
 
-        if self.groq_api_key:
+        if self.is_groq_configured:
             try:
                 client = self._get_groq_client()
                 response = client.chat.completions.create(
@@ -226,10 +259,12 @@ class AIService:
                     return {
                         "insights": response.choices[0].message.content,
                         "is_ai_generated": True,
+                        "provider": "groq",
+                        "model": self.model_name,
                         "stats_summary": stats
                     }
             except Exception as e:
-                logger.warning(f"Groq Insights generation error: {e}")
+                self._log_groq_error("Sales Insights Generation", e)
 
         # Deterministic fallback insights using actual computed stats
         top_cat = stats['category_breakdown'][0]['category'] if stats.get('category_breakdown') else 'N/A'
@@ -261,6 +296,7 @@ class AIService:
         return {
             "insights": fallback_md,
             "is_ai_generated": False,
+            "provider": "local",
             "stats_summary": stats
         }
 

@@ -15,8 +15,14 @@ def ai_service():
 
 
 def test_model_configuration_default(ai_service):
-    with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_test_key"}, clear=False):
+    with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_real_key_123"}, clear=False):
         assert ai_service.model_name == "openai/gpt-oss-120b"
+        assert ai_service.is_groq_configured is True
+
+
+def test_is_groq_configured_placeholder(ai_service):
+    with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_your_groq_api_key_here"}, clear=False):
+        assert ai_service.is_groq_configured is False
 
 
 def test_fallback_status_breakdown(ai_service):
@@ -31,29 +37,45 @@ def test_fallback_status_breakdown(ai_service):
     assert "RETURNED" in reply
 
 
-def test_groq_rate_limit_error_fallback(ai_service):
+def test_groq_auth_error_fallback(ai_service):
     query = "Show status breakdown of all orders"
     
-    with patch.object(type(ai_service), "groq_api_key", "gsk_TestKeyMock"):
+    with patch.object(type(ai_service), "groq_api_key", "gsk_invalid_test_key"):
         with patch.object(ai_service, "_get_groq_client") as mock_client_func:
             mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = Exception(
-                "429: Rate limit reached for model openai/gpt-oss-120b"
-            )
+            mock_err = Exception("Error code: 401 - {'error': {'message': 'Invalid API Key', 'code': 'invalid_api_key'}}")
+            mock_err.status_code = 401
+            mock_client.chat.completions.create.side_effect = mock_err
             mock_client_func.return_value = mock_client
 
             reply, tools = ai_service.process_chat(query, [])
 
-            assert "Rate Limit" in reply or "Quota" in reply or "429" in reply
+            assert "Authentication Error" in reply
             assert len(tools) > 0
             assert tools[0]["tool"] == "analyze_orders"
             assert "DELIVERED" in reply
 
 
+def test_sales_insights_auth_fallback(ai_service):
+    with patch.object(type(ai_service), "groq_api_key", "gsk_invalid_test_key"):
+        with patch.object(ai_service, "_get_groq_client") as mock_client_func:
+            mock_client = MagicMock()
+            mock_err = Exception("Error code: 401 - Invalid API Key gsk_invalid_test_key")
+            mock_err.status_code = 401
+            mock_client.chat.completions.create.side_effect = mock_err
+            mock_client_func.return_value = mock_client
+
+            insights_res = ai_service.generate_dashboard_insights()
+
+            assert insights_res["is_ai_generated"] is False
+            assert insights_res["provider"] == "local"
+            assert "Insights" in insights_res["insights"]
+
+
 def test_groq_tool_calling_flow(ai_service):
     query = "Lookup order ORD-1001"
     
-    with patch.object(type(ai_service), "groq_api_key", "gsk_TestKeyMock"):
+    with patch.object(type(ai_service), "groq_api_key", "gsk_real_test_key"):
         with patch.object(ai_service, "_get_groq_client") as mock_client_func:
             mock_client = MagicMock()
 
@@ -85,6 +107,5 @@ def test_groq_tool_calling_flow(ai_service):
             assert len(tools) == 1
             assert tools[0]["tool"] == "lookup_order"
             assert "ORD-1001" in reply
-            # Verify request was sent with openai/gpt-oss-120b model
             _, kwargs = mock_client.chat.completions.create.call_args_list[0]
             assert kwargs["model"] == "openai/gpt-oss-120b"

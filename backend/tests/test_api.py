@@ -18,12 +18,12 @@ def test_health_endpoint():
 
 
 def test_environment_variable_loading():
-    from backend.main import load_environment_variables
+    from backend.main import load_environment_variables, ai_service
     load_environment_variables()
     response = client.get("/health")
     json_data = response.json()
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    assert json_data["groq_configured"] == bool(api_key)
+    expected = ai_service.is_groq_configured if ai_service else False
+    assert json_data["groq_configured"] == expected
 
 
 def test_chat_endpoint_valid_lookup():

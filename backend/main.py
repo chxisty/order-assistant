@@ -116,7 +116,7 @@ def health_check():
             detail="Order data service is not initialized."
         )
     
-    groq_key = bool(os.getenv("GROQ_API_KEY", "").strip())
+    groq_key = ai_service.is_groq_configured if ai_service else False
     
     return {
         "status": "ok",
