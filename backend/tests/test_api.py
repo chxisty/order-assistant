@@ -13,8 +13,8 @@ def test_health_endpoint():
     assert json_data["status"] == "ok"
     assert json_data["orders_loaded"] > 0
     assert "timestamp" in json_data
-    assert "gemini_configured" in json_data
-    assert "openai_configured" in json_data
+    assert "groq_configured" in json_data
+    assert json_data["provider"] == "groq"
 
 
 def test_environment_variable_loading():
@@ -22,8 +22,8 @@ def test_environment_variable_loading():
     load_environment_variables()
     response = client.get("/health")
     json_data = response.json()
-    api_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip())
-    assert json_data["gemini_configured"] == bool(api_key)
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    assert json_data["groq_configured"] == bool(api_key)
 
 
 def test_chat_endpoint_valid_lookup():

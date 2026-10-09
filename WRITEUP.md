@@ -17,8 +17,8 @@ graph TD
     User([User / Web Browser]) <--> Frontend[Next.js 16 + Tailwind CSS v4 Frontend]
     Frontend <-->|REST API /chat & /api/*| Backend[FastAPI Backend Server]
     Backend <--> DataEngine[OrderDataService / Pandas Engine]
-    Backend <-->|Tool Specs & Messages| Gemini[Google Gen AI SDK gemini-2.5-flash]
-    Gemini -->|Function Call Selection| ToolHandler[OrderToolsHandler]
+    Backend <-->|Tool Specs & Messages| Groq[Groq API llama-3.3-70b-versatile]
+    Groq -->|Tool Calling Selection| ToolHandler[OrderToolsHandler]
     ToolHandler --> DataEngine
     DataEngine -->|CSV Dataset| OrdersCSV[(data/orders.csv)]
 ```
@@ -29,7 +29,7 @@ graph TD
    - Modern, dark-themed SaaS workspace rendering a responsive collapsible left sidebar (`#0D1428`), top navigation header with global search, welcome hero card, 4 dynamic KPI cards, a 2-column analytics preview (monthly area chart & status donut chart), quick actions, order lookup inspector, and interactive AI chat.
    - Built-in theme state management (`ThemeContext`) supporting Dark Navy (`#080D1B`) and Light themes with `localStorage` persistence.
    - Uses `recharts` for visual data charts and `react-markdown` with `remark-gfm` to format data tables, lists, and executive summaries cleanly.
-   - Displays real-time backend connection status (`/health`), loaded order counts (`60 Orders`), active model indicators (`Gemini AI`), and tool invocation badges.
+   - Displays real-time backend connection status (`/health`), loaded order counts (`60 Orders`), active model indicators (`Groq AI`), and tool invocation badges.
 
 2. **Backend Service Layer (Python FastAPI / Uvicorn)**:
    - Asynchronous REST API exposing `/health`, `/chat` (`/api/chat`), `/api/dashboard/stats`, `/api/dashboard/insights`, and `/api/orders/{order_id}`.
@@ -41,16 +41,16 @@ graph TD
    - Normalizes data types (string trimming, datetime parsing, numeric coercions).
    - Provides deterministic computational tools: `lookup_order`, `filter_orders`, `analyze_orders`, and `get_dashboard_stats`.
 
-4. **AI & Function Calling Layer (`AIService` & `OrderToolsHandler`)**:
-   - Manages Google Gen AI SDK (`google-genai` v2.29.0) tool-calling loops using model `gemini-2.5-flash`.
-   - Defines strict tool specifications (`GEMINI_TOOLS`) for `lookup_order`, `filter_orders`, and `analyze_orders`.
-   - Routes model function calls directly to `OrderDataService` computational methods, ensuring all financial statistics and order details are calculated directly from verified data without hallucination.
+4. **AI & Tool Calling Layer (`AIService` & `OrderToolsHandler`)**:
+   - Manages official Groq Python SDK (`groq` v1.7.0) tool-calling loops using model `llama-3.3-70b-versatile` and Base URL `https://api.groq.com/openai/v1`.
+   - Defines strict tool specifications (`GROQ_TOOLS`) for `lookup_order`, `filter_orders`, and `analyze_orders`.
+   - Routes model tool calls directly to `OrderDataService` computational methods, ensuring all financial statistics and order details are calculated directly from verified data without hallucination.
 
 ---
 
-## 2. Gemini Function Calling Implementation
+## 2. Groq Tool Calling Implementation
 
-The backend uses genuine function calling via the official `google-genai` Python SDK.
+The backend uses tool calling via the official `groq` Python SDK (`llama-3.3-70b-versatile`).
 
 ### Registered AI Tools:
 
@@ -73,8 +73,8 @@ The backend uses genuine function calling via the official `google-genai` Python
 To guarantee 100% production reliability even during external API downtime:
 
 1. **Deterministic Local Fallback Engine**:
-   - If `GEMINI_API_KEY` is missing, or if Gemini API requests hit rate limits or quota limits, `AIService` seamlessly transitions to an internal rule-based local parser.
-   - The fallback engine parses user intents, invokes the appropriate pandas data tool, and returns verified results clearly labeled with `*(Gemini API Error: Switched to local data engine)*`.
+   - If `GROQ_API_KEY` is missing, or if Groq API requests hit rate limits or quota limits, `AIService` seamlessly transitions to an internal rule-based local parser.
+   - The fallback engine parses user intents, invokes the appropriate pandas data tool, and returns verified results clearly labeled with `*(Groq API Error: Switched to local data engine)*`.
 
 2. **Input Validation & Guardrails**:
    - Pydantic models reject empty strings and malformed JSON payloads, returning HTTP 400/422 status codes.
@@ -91,12 +91,12 @@ The project includes an automated Pytest test suite with **33 passing tests**:
 - `backend/tests/test_api.py`: Tests `/health`, valid `/chat` queries, empty payload validation, invalid JSON, and `GET /api/orders/{order_id}` lookup (200 & 404).
 - `backend/tests/test_dashboard.py`: Tests `/api/dashboard/stats` KPI calculations, category/status filters, and `/api/dashboard/insights`.
 - `backend/tests/test_data_service.py`: Tests dataset loading, case-insensitive order lookups, multi-criteria filtering, revenue metrics, and customer spend rankings.
-- `backend/tests/test_fallback.py`: Tests status breakdown parser, rate-limit fallback transitions, and Gemini tool execution flow.
+- `backend/tests/test_fallback.py`: Tests status breakdown parser, rate-limit fallback transitions, and Groq SDK tool execution flow.
 
 ```bash
 # Run test suite
 .\backend\venv\Scripts\python.exe -m pytest backend/tests/ -v
-# Result: 33 passed in 3.64s
+# Result: 33 passed in 3.44s
 ```
 
 ---
@@ -109,4 +109,9 @@ The project includes an automated Pytest test suite with **33 passing tests**:
 
 - **Backend (Render):** [https://order-assistant-3owc.onrender.com](https://order-assistant-3owc.onrender.com)
   - Deployed as a Python 3 Web Service configured via `render.yaml`.
+  - Required Render Environment Variables:
+    - `GROQ_API_KEY`: Required Groq API Key
+    - `GROQ_MODEL`: `llama-3.3-70b-versatile`
+    - `GROQ_BASE_URL`: `https://api.groq.com/openai/v1`
+    - `CSV_PATH`: `data/orders.csv`
   - Interactive API Swagger documentation: [https://order-assistant-3owc.onrender.com/docs](https://order-assistant-3owc.onrender.com/docs).

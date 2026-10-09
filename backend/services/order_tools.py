@@ -1,97 +1,8 @@
 import json
 from typing import Dict, Any, List
-from google import genai
-from google.genai import types
-from backend.services.data_service import OrderDataService
 
-# Gemini Function Declarations using Google Gen AI SDK
-GEMINI_TOOLS = [
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="lookup_order",
-                description="Look up detailed information for a specific order by order_id (e.g., 'ORD-1001').",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "order_id": types.Schema(
-                            type=types.Type.STRING,
-                            description="The order identifier, e.g. 'ORD-1001'."
-                        )
-                    },
-                    required=["order_id"]
-                )
-            ),
-            types.FunctionDeclaration(
-                name="filter_orders",
-                description="Filter and search orders by category, city, order status, or date range.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "category": types.Schema(
-                            type=types.Type.STRING,
-                            description="Product category (e.g., 'Electronics', 'Accessories', 'Stationery', 'Furniture')."
-                        ),
-                        "city": types.Schema(
-                            type=types.Type.STRING,
-                            description="Customer city (e.g., 'Hyderabad', 'Pune', 'Bengaluru', 'Chennai', 'Kochi', 'Thiruvananthapuram')."
-                        ),
-                        "status": types.Schema(
-                            type=types.Type.STRING,
-                            description="Order status (e.g., 'delivered', 'returned', 'cancelled', 'processing', 'shipped')."
-                        ),
-                        "start_date": types.Schema(
-                            type=types.Type.STRING,
-                            description="Start date in YYYY-MM-DD format (e.g. '2026-06-01')."
-                        ),
-                        "end_date": types.Schema(
-                            type=types.Type.STRING,
-                            description="End date in YYYY-MM-DD format (e.g. '2026-08-31')."
-                        )
-                    },
-                    required=[]
-                )
-            ),
-            types.FunctionDeclaration(
-                name="analyze_orders",
-                description="Calculate business metrics, total revenue, average order value, top customer rankings, top products, or category/city/status breakdowns.",
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "metric": types.Schema(
-                            type=types.Type.STRING,
-                            description="Metric to analyze. Options: total_revenue, avg_order_value, order_count, customer_ranking, top_product, category_breakdown, city_breakdown, status_breakdown."
-                        ),
-                        "category": types.Schema(
-                            type=types.Type.STRING,
-                            description="Filter analysis by product category."
-                        ),
-                        "city": types.Schema(
-                            type=types.Type.STRING,
-                            description="Filter analysis by city."
-                        ),
-                        "status": types.Schema(
-                            type=types.Type.STRING,
-                            description="Filter analysis by order status."
-                        ),
-                        "month": types.Schema(
-                            type=types.Type.INTEGER,
-                            description="Filter analysis by month (1 to 12)."
-                        ),
-                        "year": types.Schema(
-                            type=types.Type.INTEGER,
-                            description="Filter analysis by 4-digit year (e.g., 2026)."
-                        )
-                    },
-                    required=["metric"]
-                )
-            )
-        ]
-    )
-]
-
-# Legacy OpenAI tools dictionary retained for fallback compatibility
-OPENAI_TOOLS = [
+# Groq Function Declarations (OpenAI-compatible schema format)
+GROQ_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -117,11 +28,26 @@ OPENAI_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "category": {"type": "string"},
-                    "city": {"type": "string"},
-                    "status": {"type": "string"},
-                    "start_date": {"type": "string"},
-                    "end_date": {"type": "string"}
+                    "category": {
+                        "type": "string",
+                        "description": "Product category (e.g., 'Electronics', 'Accessories', 'Stationery', 'Furniture')."
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "Customer city (e.g., 'Hyderabad', 'Pune', 'Bengaluru', 'Chennai', 'Kochi', 'Thiruvananthapuram')."
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Order status (e.g., 'delivered', 'returned', 'cancelled', 'processing', 'shipped')."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date in YYYY-MM-DD format (e.g. '2026-06-01')."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date in YYYY-MM-DD format (e.g. '2026-08-31')."
+                    }
                 },
                 "required": []
             }
@@ -135,12 +61,30 @@ OPENAI_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "metric": {"type": "string"},
-                    "category": {"type": "string"},
-                    "city": {"type": "string"},
-                    "status": {"type": "string"},
-                    "month": {"type": "integer"},
-                    "year": {"type": "integer"}
+                    "metric": {
+                        "type": "string",
+                        "description": "Metric to analyze. Options: total_revenue, avg_order_value, order_count, customer_ranking, top_product, category_breakdown, city_breakdown, status_breakdown."
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Filter analysis by product category."
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "Filter analysis by city."
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Filter analysis by order status."
+                    },
+                    "month": {
+                        "type": "integer",
+                        "description": "Filter analysis by month (1 to 12)."
+                    },
+                    "year": {
+                        "type": "integer",
+                        "description": "Filter analysis by 4-digit year (e.g., 2026)."
+                    }
                 },
                 "required": ["metric"]
             }
@@ -148,9 +92,12 @@ OPENAI_TOOLS = [
     }
 ]
 
+# Alias for backward compatibility if imported elsewhere
+OPENAI_TOOLS = GROQ_TOOLS
+
 
 class OrderToolsHandler:
-    def __init__(self, data_service: OrderDataService):
+    def __init__(self, data_service: Any):
         self.data_service = data_service
 
     def execute_tool(self, tool_name: str, arguments: Any) -> Dict[str, Any]:

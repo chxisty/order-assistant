@@ -1,6 +1,6 @@
 # Order Assistant — Premium AI Analytics Dashboard
 
-An intelligent full-stack e-commerce workspace for order dataset tracking, querying, and sales analytics built with **Next.js 16**, **TypeScript**, **Tailwind CSS**, **Python FastAPI**, **Pandas**, and **Google Gemini API** with genuine function calling.
+An intelligent full-stack e-commerce workspace for order dataset tracking, querying, and sales analytics built with **Next.js 16**, **TypeScript**, **Tailwind CSS**, **Python FastAPI**, **Pandas**, and **Groq API** (`llama-3.3-70b-versatile`) with genuine tool calling.
 
 - 🌐 **Live Website:** [https://order-assistant-lemon.vercel.app/](https://order-assistant-lemon.vercel.app/)
 - 🐙 **GitHub Repository:** [https://github.com/chxisty/order-assistant](https://github.com/chxisty/order-assistant)
@@ -10,12 +10,12 @@ An intelligent full-stack e-commerce workspace for order dataset tracking, query
 
 ## 🌟 Key Features
 
-- **Genuine Gemini Function Calling**: Leverages the official `google-genai` SDK (`gemini-2.5-flash`) with function declarations (`lookup_order`, `filter_orders`, `analyze_orders`), allowing Gemini AI to dynamically select and invoke backend data tools.
+- **Genuine Groq API Tool Calling**: Leverages the official `groq` Python SDK (`llama-3.3-70b-versatile`) with function declarations (`lookup_order`, `filter_orders`, `analyze_orders`), allowing Groq AI to dynamically select and invoke backend data tools.
 - **FastAPI & Pandas Data Engine**: High-performance backend calculating analytics directly from `data/orders.csv` (60 verified order records).
 - **Premium Dark Navy Dashboard & Light Theme**: Polished dark SaaS dashboard interface featuring a responsive collapsible sidebar (`#0D1428`), top header with global search, welcome hero banner, 4 dynamic KPI cards, 2-column analytics preview (monthly revenue area chart & status donut chart), quick actions, and a functional Light/Dark theme toggle with `localStorage` persistence.
 - **Dedicated Order Lookup Page**: Direct order search by ID (e.g., `ORD-1001` through `ORD-1060`) displaying customer name, city, product, category, quantity, unit price, total revenue, order date, payment method, status badge, and an AI chat query trigger.
-- **Executive AI Sales Insights**: Dedicated insights module generating executive sales recommendations using Gemini AI or deterministic local data fallback.
-- **Resilient Local Fallback Engine**: If the Gemini API key is unconfigured, rate-limited, or quota-exceeded, the system seamlessly uses a local pandas data engine to answer queries directly, clearly labeling fallback output.
+- **Executive AI Sales Insights**: Dedicated insights module generating executive sales recommendations using Groq AI or deterministic local data fallback.
+- **Resilient Local Fallback Engine**: If the Groq API key is unconfigured, rate-limited, or quota-exceeded, the system seamlessly uses a local pandas data engine to answer queries directly, clearly labeling fallback output.
 - **Comprehensive Backend Test Suite**: 33 automated Pytest tests covering order lookup, multi-criteria filtering, analytics metrics, API endpoints, error handling, and local fallback paths.
 
 ---
@@ -23,8 +23,8 @@ An intelligent full-stack e-commerce workspace for order dataset tracking, query
 ## 🛠️ Technology Stack
 
 - **Frontend**: Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Lucide Icons, Recharts, React Markdown, Remark GFM
-- **Backend**: Python 3.12, FastAPI, Uvicorn, Pandas, Pydantic, python-dotenv, Google Gen AI SDK (`google-genai`)
-- **AI Integration**: Google Gemini API (`gemini-2.5-flash`) with genuine function/tool calling *(Optional OpenAI API support supported via backend configuration)*
+- **Backend**: Python 3.12, FastAPI, Uvicorn, Pandas, Pydantic, python-dotenv, Groq Python SDK (`groq`)
+- **AI Integration**: Groq API (`llama-3.3-70b-versatile`, Base URL: `https://api.groq.com/openai/v1`) with genuine tool calling
 - **Testing**: Pytest & Starlette `TestClient`
 - **Deployment**: Render (Backend Web Service) & Vercel (Frontend Web App)
 
@@ -38,14 +38,14 @@ order-assistant/
 │   └── orders.csv             # 60 Order records CSV dataset
 ├── backend/
 │   ├── main.py                # FastAPI app entrypoint (/health, /chat, /api/dashboard/stats, /api/dashboard/insights, /api/orders/{id})
-│   ├── requirements.txt       # Backend dependencies (fastapi, pandas, google-genai, uvicorn, pytest)
+│   ├── requirements.txt       # Backend dependencies (fastapi, pandas, groq, uvicorn, pytest)
 │   ├── Procfile               # Deployment process manager config
 │   ├── conftest.py            # Pytest configuration
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── data_service.py    # Pandas DataFrame operations & analytics metrics logic
-│   │   ├── order_tools.py     # Gemini tool declarations (lookup_order, filter_orders, analyze_orders)
-│   │   └── ai_service.py       # Gemini API handler & tool execution loop with local fallback
+│   │   ├── order_tools.py     # Groq tool declarations (lookup_order, filter_orders, analyze_orders)
+│   │   └── ai_service.py       # Groq API handler & tool execution loop with local fallback
 │   └── tests/
 │       ├── __init__.py
 │       ├── test_api.py           # FastAPI health, chat, & GET /api/orders/{id} tests
@@ -78,10 +78,9 @@ The backend uses `python-dotenv` to automatically load environment variables fro
 
 | Variable | Scope | Description | Default / Example |
 | :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Backend | Google Gemini API key (Free Tier available at Google AI Studio) | `your_gemini_api_key_here` |
-| `GEMINI_MODEL` | Backend | Gemini model identifier for tool calling | `gemini-2.5-flash` |
-| `OPENAI_API_KEY` | Backend (Optional) | OpenAI API key if using OpenAI backend option | `sk-proj-your-key-here` |
-| `OPENAI_MODEL` | Backend (Optional) | OpenAI model identifier | `gpt-4o-mini` |
+| `GROQ_API_KEY` | Backend | Required Groq API Key (Obtain from Groq Console) | `gsk_your_groq_api_key_here` |
+| `GROQ_MODEL` | Backend | Groq LLM model identifier | `llama-3.3-70b-versatile` |
+| `GROQ_BASE_URL` | Backend | Groq OpenAI-compatible Base URL | `https://api.groq.com/openai/v1` |
 | `CSV_PATH` | Backend | Path to the order dataset CSV file | `data/orders.csv` |
 | `NEXT_PUBLIC_BACKEND_URL` | Frontend | Public API base URL for the FastAPI backend | `https://order-assistant-3owc.onrender.com` |
 
@@ -95,7 +94,7 @@ The backend uses `python-dotenv` to automatically load environment variables fro
 
 - **Python**: 3.10+ (Tested on Python 3.12)
 - **Node.js**: v18+ or v20+ (npm v9+)
-- **Google Gemini API Key**: Free tier API key from [Google AI Studio](https://aistudio.google.com/) *(Optional: local deterministic engine operates if key is unconfigured)*
+- **Groq API Key**: Obtain API key from Groq Console *(Optional: local deterministic engine operates if key is unconfigured)*
 
 ---
 
@@ -111,10 +110,11 @@ cd order-assistant
    ```bash
    cp .env.example .env
    ```
-   *Edit `.env` and set your `GEMINI_API_KEY`:*
+   *Edit `.env` and set your `GROQ_API_KEY`:*
    ```env
-   GEMINI_API_KEY=your_actual_gemini_api_key
-   GEMINI_MODEL=gemini-2.5-flash
+   GROQ_API_KEY=gsk_your_actual_groq_api_key
+   GROQ_MODEL=llama-3.3-70b-versatile
+   GROQ_BASE_URL=https://api.groq.com/openai/v1
    NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
    ```
 
@@ -200,7 +200,11 @@ npm run dev
    - Configured via `render.yaml` with Python 3 environment.
    - Build command: `pip install -r backend/requirements.txt`
    - Start command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-   - Configured variables: `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-2.5-flash`, `CSV_PATH=data/orders.csv`.
+   - Required Environment Variables:
+     - `GROQ_API_KEY`: Required Groq API Key
+     - `GROQ_MODEL`: `llama-3.3-70b-versatile`
+     - `GROQ_BASE_URL`: `https://api.groq.com/openai/v1`
+     - `CSV_PATH`: `data/orders.csv`
 
 2. **Frontend Web App (Vercel)**:
    - Configured with `frontend` root directory.

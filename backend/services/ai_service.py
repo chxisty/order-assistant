@@ -3,11 +3,10 @@ import json
 import logging
 import re
 from typing import List, Dict, Any, Tuple, Optional
-from google import genai
-from google.genai import types
+from groq import Groq
 
 from backend.services.data_service import OrderDataService
-from backend.services.order_tools import GEMINI_TOOLS, OrderToolsHandler
+from backend.services.order_tools import GROQ_TOOLS, OrderToolsHandler
 
 logger = logging.getLogger(__name__)
 
@@ -33,152 +32,113 @@ class AIService:
         self.tools_handler = OrderToolsHandler(data_service)
 
     @property
-    def gemini_api_key(self) -> str:
-        """Dynamically resolve GEMINI_API_KEY from environment."""
-        return os.getenv("GEMINI_API_KEY", "").strip()
+    def groq_api_key(self) -> str:
+        """Dynamically resolve GROQ_API_KEY from environment."""
+        return os.getenv("GROQ_API_KEY", "").strip()
 
     @property
-    def openai_api_key(self) -> str:
-        """Dynamically resolve OPENAI_API_KEY from environment."""
-        return os.getenv("OPENAI_API_KEY", "").strip()
+    def groq_base_url(self) -> str:
+        """Dynamically resolve Groq API Base URL from environment."""
+        return os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip()
 
     @property
     def api_key(self) -> str:
-        """Dynamically resolve active API key (GEMINI_API_KEY preferred, OPENAI_API_KEY secondary)."""
-        return self.gemini_api_key or self.openai_api_key
+        """Dynamically resolve active API key (GROQ_API_KEY required)."""
+        return self.groq_api_key
 
     @property
     def model_name(self) -> str:
-        """Dynamically resolve active model identifier from environment."""
-        if self.gemini_api_key:
-            return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
-        elif self.openai_api_key:
-            return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+        """Dynamically resolve active Groq model identifier from environment."""
+        if self.groq_api_key:
+            return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
         return "local-fallback"
 
-    def _get_client(self) -> genai.Client:
-        key = self.gemini_api_key
+    def _get_groq_client(self) -> Groq:
+        key = self.groq_api_key
         if not key:
-            raise ValueError("GEMINI_API_KEY is not configured in backend environment.")
-        return genai.Client(api_key=key)
+            raise ValueError("GROQ_API_KEY is not configured in backend environment.")
+        return Groq(api_key=key, base_url=self.groq_base_url)
 
     def process_chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
         """
-        Processes user query using genuine Gemini function calling.
-        If Gemini is unconfigured or rate limited, supports OpenAI or local fallback.
+        Processes user query using Groq API tool calling.
+        If Groq is unconfigured or rate limited/error occurs, falls back to intelligent local data engine.
         Returns tuple of (assistant_reply, executed_tool_calls).
         """
-        # Case 1: Gemini API Key is configured (or mocked for tests)
-        if self.gemini_api_key:
-            return self._process_chat_gemini(user_message, history)
+        if self.groq_api_key:
+            return self._process_chat_groq(user_message, history)
 
-        # Case 2: OpenAI API Key is configured (fallback provider)
-        if self.openai_api_key and not self.openai_api_key.startswith("sk-proj-your"):
-            return self._process_chat_openai(user_message, history)
-
-        # Case 3: No API Key configured -> Use Intelligent Local Data Engine
+        # No API Key configured -> Use Intelligent Local Data Engine
         reply, tools = self._local_fallback_process(user_message)
-        return "*(Gemini API Key Not Configured: Using local data engine)*\n\n" + reply, tools
+        return "*(Groq API Key Not Configured: Using local data engine)*\n\n" + reply, tools
 
-    def _process_chat_gemini(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
-        """Execute chat using official Google Gen AI SDK (gemini-2.5-flash)."""
+    def _process_chat_groq(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
+        """Execute chat using official Groq SDK with model llama-3.3-70b-versatile and tool calling."""
         try:
-            client = self._get_client()
+            client = self._get_groq_client()
         except Exception as e:
-            logger.warning(f"Could not initialize Gemini client: {e}. Falling back to local data engine.")
+            logger.warning(f"Could not initialize Groq client: {e}. Falling back to local data engine.")
             reply, tools = self._local_fallback_process(user_message)
-            return f"*(Gemini Initialization Error [{type(e).__name__}]: Using local data engine)*\n\n" + reply, tools
+            return f"*(Groq Initialization Error [{type(e).__name__}]: Using local data engine)*\n\n" + reply, tools
 
-        # Build contents array from conversation history
-        contents = []
+        # Build initial messages array starting with system prompt
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         for h in history[-10:]:
             role = h.get("role", "user")
-            role_mapped = "user" if role == "user" else "model"
+            role_mapped = "assistant" if role in ["assistant", "model"] else "user"
             content_text = h.get("content", "")
             if content_text and not h.get("error"):
-                contents.append(
-                    types.Content(
-                        role=role_mapped,
-                        parts=[types.Part.from_text(text=content_text)]
-                    )
-                )
+                messages.append({"role": role_mapped, "content": content_text})
 
-        contents.append(
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_message)]
-            )
-        )
+        messages.append({"role": "user", "content": user_message})
 
-        config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            tools=GEMINI_TOOLS,
-            temperature=0.2
-        )
-
-        # Candidate model list to handle tier-specific model availability
-        raw_model = self.model_name
-        model_candidates = [raw_model]
-        for fallback_m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-            if fallback_m not in model_candidates:
-                model_candidates.append(fallback_m)
-
-        executed_tools = []
+        executed_tools: List[Dict[str, Any]] = []
         max_turns = 5
 
         for turn in range(max_turns):
-            response = None
-            last_error = None
-
-            for m_candidate in model_candidates:
-                try:
-                    response = client.models.generate_content(
-                        model=m_candidate,
-                        contents=contents,
-                        config=config
-                    )
-                    if response:
-                        break
-                except Exception as api_err:
-                    last_error = api_err
-                    err_str = str(api_err).lower()
-                    # Only retry fallback models if error is model-not-found / 404
-                    if "not_found" not in err_str and "404" not in err_str and "unknown model" not in err_str:
-                        break
-
-            if response is None:
-                api_err = last_error or Exception("Unknown Gemini API error")
+            try:
+                response = client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=GROQ_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.2
+                )
+            except Exception as api_err:
                 err_type = type(api_err).__name__
                 err_str = str(api_err)
 
                 # Safe logging: redact sensitive key strings
-                safe_err_log = re.sub(r'(AIza|sk-)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
-                logger.error(f"Gemini API Error: {safe_err_log}")
+                safe_err_log = re.sub(r'(gsk_|sk-|AIza)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
+                logger.error(f"Groq API Error: {safe_err_log}")
 
                 # Precise error classification
-                if "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
-                    note_prefix = f"*(Gemini API Error: Invalid API Key [{err_type}]: Switched to local data engine)*\n\n"
-                elif "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower() or "resource_exhausted" in err_str.lower():
-                    note_prefix = f"*(Gemini API Rate Limit / Quota Exceeded [{err_type}]: Switched to local data engine)*\n\n"
-                elif "404" in err_str or "not_found" in err_str.lower():
-                    note_prefix = f"*(Gemini API Error: Model Not Found [{err_type}]: Switched to local data engine)*\n\n"
+                if "401" in err_str or "invalid_api_key" in err_str.lower() or "authentication" in err_str.lower():
+                    note_prefix = f"*(Groq API Error: Invalid API Key [{err_type}]: Switched to local data engine)*\n\n"
+                elif "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+                    note_prefix = f"*(Groq API Rate Limit / Quota Exceeded [{err_type}]: Switched to local data engine)*\n\n"
+                elif "404" in err_str or "model_not_found" in err_str.lower():
+                    note_prefix = f"*(Groq API Error: Model Not Found [{err_type}]: Switched to local data engine)*\n\n"
                 else:
-                    note_prefix = f"*(Gemini API Error [{err_type}]: Switched to local data engine)*\n\n"
+                    note_prefix = f"*(Groq API Error [{err_type}]: Switched to local data engine)*\n\n"
 
                 fallback_reply, fallback_tools = self._local_fallback_process(user_message)
                 return note_prefix + fallback_reply, fallback_tools
 
-            # Check if Gemini invoked function call(s)
-            if response.function_calls:
-                if response.candidates and response.candidates[0].content:
-                    contents.append(response.candidates[0].content)
+            msg = response.choices[0].message
+            if msg.tool_calls:
+                messages.append(msg)
+                for tool_call in msg.tool_calls:
+                    tool_name = tool_call.function.name
+                    raw_args = tool_call.function.arguments
+                    if isinstance(raw_args, str):
+                        try:
+                            tool_args = json.loads(raw_args)
+                        except Exception:
+                            tool_args = {}
+                    else:
+                        tool_args = raw_args or {}
 
-                function_response_parts = []
-                for call in response.function_calls:
-                    tool_name = call.name
-                    tool_args = call.args or {}
-
-                    # Execute python tool
                     result = self.tools_handler.execute_tool(tool_name, tool_args)
 
                     executed_tools.append({
@@ -187,76 +147,17 @@ class AIService:
                         "result": result
                     })
 
-                    function_response_parts.append(
-                        types.Part.from_function_response(
-                            name=tool_name,
-                            response={"result": result}
-                        )
-                    )
-
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=function_response_parts
-                    )
-                )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": json.dumps(result, ensure_ascii=False)
+                    })
             else:
-                final_text = response.text or "No text response generated."
+                final_text = msg.content or "No response generated."
                 return final_text, executed_tools
 
         return "Completed processing your request.", executed_tools
-
-    def _process_chat_openai(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
-        """Execute chat using OpenAI API if OPENAI_API_KEY is configured."""
-        try:
-            import openai
-            from backend.services.order_tools import OPENAI_TOOLS
-            
-            client = openai.OpenAI(api_key=self.openai_api_key)
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            for h in history[-10:]:
-                if h.get("content") and not h.get("error"):
-                    messages.append({"role": h.get("role", "user"), "content": h.get("content")})
-            messages.append({"role": "user", "content": user_message})
-
-            executed_tools = []
-            max_turns = 5
-
-            for turn in range(max_turns):
-                response = client.chat.completions.create(
-                    model=self.model_name if "gpt" in self.model_name else "gpt-4o-mini",
-                    messages=messages,
-                    tools=OPENAI_TOOLS,
-                    tool_choice="auto"
-                )
-
-                msg = response.choices[0].message
-                if msg.tool_calls:
-                    messages.append(msg)
-                    for tool_call in msg.tool_calls:
-                        tool_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
-                        result = self.tools_handler.execute_tool(tool_name, tool_args)
-                        executed_tools.append({
-                            "tool": tool_name,
-                            "arguments": tool_call.function.arguments,
-                            "result": result
-                        })
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_name,
-                            "content": json.dumps(result, ensure_ascii=False)
-                        })
-                else:
-                    return msg.content or "No response generated.", executed_tools
-
-            return "Completed processing your request.", executed_tools
-        except Exception as oai_err:
-            logger.warning(f"OpenAI API Error: {oai_err}. Falling back to local data engine.")
-            fallback_reply, fallback_tools = self._local_fallback_process(user_message)
-            return f"*(OpenAI API Error [{type(oai_err).__name__}]: Switched to local data engine)*\n\n" + fallback_reply, fallback_tools
-
 
     def generate_dashboard_insights(
         self,
@@ -266,8 +167,8 @@ class AIService:
         year: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Generate evidence-based AI sales insights from computed stats.
-        If AI provider is unavailable or quota exceeded, returns deterministic local engine insights.
+        Generate evidence-based AI sales insights from computed stats using Groq API.
+        If Groq is unavailable or quota exceeded, returns deterministic local engine insights.
         """
         stats = self.data_service.get_dashboard_stats(category=category, status=status, month=month, year=year)
         kpis = stats.get("kpis", {})
@@ -279,7 +180,6 @@ class AIService:
                 "stats_summary": stats
             }
 
-        # Build evidence prompt for AI model
         prompt = (
             f"Analyze the following order dataset metrics and generate executive sales insights:\n"
             f"- Total Orders: {kpis.get('total_orders')}\n"
@@ -298,26 +198,25 @@ class AIService:
             f"4. **Notable Insights & Operational Recommendations**"
         )
 
-        key = self.api_key
-        if key:
+        if self.groq_api_key:
             try:
-                client = self._get_client()
-                response = client.models.generate_content(
+                client = self._get_groq_client()
+                response = client.chat.completions.create(
                     model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        temperature=0.2
-                    )
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2
                 )
-                if response and response.text:
+                if response and response.choices and response.choices[0].message.content:
                     return {
-                        "insights": response.text,
+                        "insights": response.choices[0].message.content,
                         "is_ai_generated": True,
                         "stats_summary": stats
                     }
             except Exception as e:
-                logger.warning(f"AI Insights generation error: {e}")
+                logger.warning(f"Groq Insights generation error: {e}")
 
         # Deterministic fallback insights using actual computed stats
         top_cat = stats['category_breakdown'][0]['category'] if stats.get('category_breakdown') else 'N/A'
@@ -330,7 +229,7 @@ class AIService:
         ret_pct = round((kpis.get('returned_orders', 0) / kpis.get('total_orders', 1)) * 100, 1)
 
         fallback_md = (
-            f"*(Local Data Engine Insights - AI API Offline)*\n\n"
+            f"*(Local Data Engine Insights - Groq API Offline)*\n\n"
             f"### 🏆 1. Best-Performing Category & Product\n"
             f"- **Top Category:** **{top_cat}** generated highest revenue at **₹{top_cat_rev:,.2f}**.\n"
             f"- **Top Product:** **{top_prod}** led individual product sales at **₹{top_prod_rev:,.2f}**.\n\n"
@@ -354,11 +253,11 @@ class AIService:
 
     def _local_fallback_process(self, user_message: str) -> Tuple[str, List[Dict[str, Any]]]:
         """
-        Rule-based parser used when GEMINI_API_KEY is not set or API is unreachable/rate-limited.
+        Rule-based parser used when GROQ_API_KEY is not set or API is unreachable/rate-limited.
         Parses intent from user query and runs genuine data tools directly.
         """
         msg_lower = user_message.lower().strip()
-        executed_tools = []
+        executed_tools: List[Dict[str, Any]] = []
 
         # 1. Order Lookup (e.g. ORD-1001, ord 1005, or order 1002)
         ord_match = re.search(r'ord[-\s]?(\d{4})', msg_lower)

@@ -34,7 +34,7 @@ load_environment_variables()
 
 app = FastAPI(
     title="Order Assistant API",
-    description="FastAPI Backend for AI Order Assistant with OpenAI & Gemini tool calling over CSV data.",
+    description="FastAPI Backend for AI Order Assistant with Groq API tool calling over CSV data.",
     version="1.0.0"
 )
 
@@ -116,15 +116,13 @@ def health_check():
             detail="Order data service is not initialized."
         )
     
-    gemini_key = bool(os.getenv("GEMINI_API_KEY", "").strip())
-    openai_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
-    api_configured = gemini_key or openai_key
+    groq_key = bool(os.getenv("GROQ_API_KEY", "").strip())
     
     return {
         "status": "ok",
         "orders_loaded": len(data_service.df),
-        "gemini_configured": api_configured,
-        "openai_configured": api_configured,
+        "groq_configured": groq_key,
+        "provider": "groq",
         "model": ai_service.model_name if ai_service else "local-fallback",
         "timestamp": time.time()
     }
