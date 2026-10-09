@@ -33,37 +33,55 @@ class AIService:
         self.tools_handler = OrderToolsHandler(data_service)
 
     @property
+    def gemini_api_key(self) -> str:
+        """Dynamically resolve GEMINI_API_KEY from environment."""
+        return os.getenv("GEMINI_API_KEY", "").strip()
+
+    @property
+    def openai_api_key(self) -> str:
+        """Dynamically resolve OPENAI_API_KEY from environment."""
+        return os.getenv("OPENAI_API_KEY", "").strip()
+
+    @property
     def api_key(self) -> str:
-        """Dynamically resolve GEMINI_API_KEY (or OPENAI_API_KEY fallback) from environment."""
-        key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not key:
-            # Fallback check if user stored key in OPENAI_API_KEY variable name
-            key = os.getenv("OPENAI_API_KEY", "").strip()
-        return key
+        """Dynamically resolve active API key (GEMINI_API_KEY preferred, OPENAI_API_KEY secondary)."""
+        return self.gemini_api_key or self.openai_api_key
 
     @property
     def model_name(self) -> str:
-        """Dynamically resolve GEMINI_MODEL from environment (defaults to gemini-2.5-flash)."""
-        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        """Dynamically resolve active model identifier from environment."""
+        if self.gemini_api_key:
+            return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        elif self.openai_api_key:
+            return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+        return "local-fallback"
 
     def _get_client(self) -> genai.Client:
-        key = self.api_key
+        key = self.gemini_api_key
         if not key:
             raise ValueError("GEMINI_API_KEY is not configured in backend environment.")
         return genai.Client(api_key=key)
 
     def process_chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
         """
-        Processes user query using genuine Google Gemini function calling.
+        Processes user query using genuine Gemini function calling.
+        If Gemini is unconfigured or rate limited, supports OpenAI or local fallback.
         Returns tuple of (assistant_reply, executed_tool_calls).
         """
-        key = self.api_key
+        # Case 1: Gemini API Key is configured (or mocked for tests)
+        if self.gemini_api_key:
+            return self._process_chat_gemini(user_message, history)
 
-        # If API key is missing or blank, use intelligent local fallback handler
-        if not key:
-            reply, tools = self._local_fallback_process(user_message)
-            return "*(Gemini API Key Not Configured: Using local data engine)*\n\n" + reply, tools
+        # Case 2: OpenAI API Key is configured (fallback provider)
+        if self.openai_api_key and not self.openai_api_key.startswith("sk-proj-your"):
+            return self._process_chat_openai(user_message, history)
 
+        # Case 3: No API Key configured -> Use Intelligent Local Data Engine
+        reply, tools = self._local_fallback_process(user_message)
+        return "*(Gemini API Key Not Configured: Using local data engine)*\n\n" + reply, tools
+
+    def _process_chat_gemini(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
+        """Execute chat using official Google Gen AI SDK (gemini-2.5-flash)."""
         try:
             client = self._get_client()
         except Exception as e:
@@ -73,7 +91,6 @@ class AIService:
 
         # Build contents array from conversation history
         contents = []
-
         for h in history[-10:]:
             role = h.get("role", "user")
             role_mapped = "user" if role == "user" else "model"
@@ -99,28 +116,52 @@ class AIService:
             temperature=0.2
         )
 
+        # Candidate model list to handle tier-specific model availability
+        raw_model = self.model_name
+        model_candidates = [raw_model]
+        for fallback_m in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+            if fallback_m not in model_candidates:
+                model_candidates.append(fallback_m)
+
         executed_tools = []
         max_turns = 5
 
         for turn in range(max_turns):
-            try:
-                response = client.models.generate_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=config
-                )
-            except Exception as api_err:
-                logger.error(f"Gemini API Error: {api_err}")
+            response = None
+            last_error = None
+
+            for m_candidate in model_candidates:
+                try:
+                    response = client.models.generate_content(
+                        model=m_candidate,
+                        contents=contents,
+                        config=config
+                    )
+                    if response:
+                        break
+                except Exception as api_err:
+                    last_error = api_err
+                    err_str = str(api_err).lower()
+                    # Only retry fallback models if error is model-not-found / 404
+                    if "not_found" not in err_str and "404" not in err_str and "unknown model" not in err_str:
+                        break
+
+            if response is None:
+                api_err = last_error or Exception("Unknown Gemini API error")
                 err_type = type(api_err).__name__
                 err_str = str(api_err)
 
-                # Redact any API key tokens in error strings
-                if "AIza" in err_str or "sk-" in err_str:
-                    err_str = re.sub(r'(AIza|sk-)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
+                # Safe logging: redact sensitive key strings
+                safe_err_log = re.sub(r'(AIza|sk-)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
+                logger.error(f"Gemini API Error: {safe_err_log}")
 
-                # Format clear rate-limit / API error header
-                if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower() or "resource_exhausted" in err_str.lower():
+                # Precise error classification
+                if "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
+                    note_prefix = f"*(Gemini API Error: Invalid API Key [{err_type}]: Switched to local data engine)*\n\n"
+                elif "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower() or "resource_exhausted" in err_str.lower():
                     note_prefix = f"*(Gemini API Rate Limit / Quota Exceeded [{err_type}]: Switched to local data engine)*\n\n"
+                elif "404" in err_str or "not_found" in err_str.lower():
+                    note_prefix = f"*(Gemini API Error: Model Not Found [{err_type}]: Switched to local data engine)*\n\n"
                 else:
                     note_prefix = f"*(Gemini API Error [{err_type}]: Switched to local data engine)*\n\n"
 
@@ -129,7 +170,6 @@ class AIService:
 
             # Check if Gemini invoked function call(s)
             if response.function_calls:
-                # Append candidate content to history
                 if response.candidates and response.candidates[0].content:
                     contents.append(response.candidates[0].content)
 
@@ -154,7 +194,6 @@ class AIService:
                         )
                     )
 
-                # Send function response parts back to Gemini
                 contents.append(
                     types.Content(
                         role="user",
@@ -162,11 +201,62 @@ class AIService:
                     )
                 )
             else:
-                # Gemini generated direct text answer
-                final_text = response.text or "No text generated."
+                final_text = response.text or "No text response generated."
                 return final_text, executed_tools
 
         return "Completed processing your request.", executed_tools
+
+    def _process_chat_openai(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
+        """Execute chat using OpenAI API if OPENAI_API_KEY is configured."""
+        try:
+            import openai
+            from backend.services.order_tools import OPENAI_TOOLS
+            
+            client = openai.OpenAI(api_key=self.openai_api_key)
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            for h in history[-10:]:
+                if h.get("content") and not h.get("error"):
+                    messages.append({"role": h.get("role", "user"), "content": h.get("content")})
+            messages.append({"role": "user", "content": user_message})
+
+            executed_tools = []
+            max_turns = 5
+
+            for turn in range(max_turns):
+                response = client.chat.completions.create(
+                    model=self.model_name if "gpt" in self.model_name else "gpt-4o-mini",
+                    messages=messages,
+                    tools=OPENAI_TOOLS,
+                    tool_choice="auto"
+                )
+
+                msg = response.choices[0].message
+                if msg.tool_calls:
+                    messages.append(msg)
+                    for tool_call in msg.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args = json.loads(tool_call.function.arguments)
+                        result = self.tools_handler.execute_tool(tool_name, tool_args)
+                        executed_tools.append({
+                            "tool": tool_name,
+                            "arguments": tool_call.function.arguments,
+                            "result": result
+                        })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": json.dumps(result, ensure_ascii=False)
+                        })
+                else:
+                    return msg.content or "No response generated.", executed_tools
+
+            return "Completed processing your request.", executed_tools
+        except Exception as oai_err:
+            logger.warning(f"OpenAI API Error: {oai_err}. Falling back to local data engine.")
+            fallback_reply, fallback_tools = self._local_fallback_process(user_message)
+            return f"*(OpenAI API Error [{type(oai_err).__name__}]: Switched to local data engine)*\n\n" + fallback_reply, fallback_tools
+
 
     def generate_dashboard_insights(
         self,
