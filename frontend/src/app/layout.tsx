@@ -17,10 +17,10 @@ export const metadata: Metadata = {
   description: "Intelligent Order Tracking, Filtering, and Executive Sales Insights Assistant",
   icons: {
     icon: [
-      { url: "/order-assistant-logo.png", type: "image/png" }
+      { url: "/icon.svg", type: "image/svg+xml" }
     ],
-    shortcut: "/order-assistant-logo.png",
-    apple: "/order-assistant-logo.png",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
   },
 };
 
