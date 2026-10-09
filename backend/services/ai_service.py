@@ -60,15 +60,17 @@ class AIService:
     def model_name(self) -> str:
         """Dynamically resolve active Groq model identifier from environment."""
         if self.groq_api_key:
-            raw_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip().strip('"').strip("'")
-            return raw_model or "llama-3.3-70b-versatile"
+            raw_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip().strip('"').strip("'")
+            return raw_model or "openai/gpt-oss-120b"
         return "local-fallback"
 
     def _get_groq_client(self) -> Groq:
         key = self.groq_api_key
         if not key:
             raise ValueError("GROQ_API_KEY is not configured in backend environment.")
-        return Groq(api_key=key, base_url=self.groq_base_url)
+        if self.groq_base_url and self.groq_base_url != "https://api.groq.com":
+            return Groq(api_key=key, base_url=self.groq_base_url)
+        return Groq(api_key=key)
 
     def process_chat(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
         """
@@ -106,37 +108,19 @@ class AIService:
         executed_tools: List[Dict[str, Any]] = []
         max_turns = 5
 
-        # Build model candidates list for seamless fallback if primary model fails
-        primary_model = self.model_name
-        model_candidates = [primary_model]
-        for fallback_m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
-            if fallback_m not in model_candidates:
-                model_candidates.append(fallback_m)
+        # Single active model candidate (no deprecated fallback models)
+        target_model = self.model_name
 
         for turn in range(max_turns):
-            response = None
-            last_error = None
-
-            for m_candidate in model_candidates:
-                try:
-                    response = client.chat.completions.create(
-                        model=m_candidate,
-                        messages=messages,
-                        tools=GROQ_TOOLS,
-                        tool_choice="auto",
-                        temperature=0.2
-                    )
-                    if response:
-                        break
-                except Exception as api_err:
-                    last_error = api_err
-                    err_str = str(api_err).lower()
-                    # Only retry fallback model if error is 404 / model_not_found
-                    if "404" not in err_str and "not_found" not in err_str and "unknown" not in err_str:
-                        break
-
-            if response is None:
-                api_err = last_error or Exception("Unknown Groq API error")
+            try:
+                response = client.chat.completions.create(
+                    model=target_model,
+                    messages=messages,
+                    tools=GROQ_TOOLS,
+                    tool_choice="auto",
+                    temperature=0.2
+                )
+            except Exception as api_err:
                 err_str = str(api_err)
 
                 # Safe logging: redact sensitive key strings

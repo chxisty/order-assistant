@@ -274,7 +274,7 @@ function AppContent() {
                     </h2>
                   </div>
                   <span className="text-xs text-slate-400">
-                    Function Calling Active &bull; {health?.model ? health.model : 'llama-3.3-70b-versatile'}
+                    Function Calling Active &bull; {health?.model ? health.model : 'openai/gpt-oss-120b'}
                   </span>
                 </div>
 

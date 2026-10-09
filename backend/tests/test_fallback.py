@@ -14,6 +14,11 @@ def ai_service():
     return AIService(ds)
 
 
+def test_model_configuration_default(ai_service):
+    with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_test_key"}, clear=False):
+        assert ai_service.model_name == "openai/gpt-oss-120b"
+
+
 def test_fallback_status_breakdown(ai_service):
     query = "Show status breakdown of all orders"
     reply, tools = ai_service._local_fallback_process(query)
@@ -33,7 +38,7 @@ def test_groq_rate_limit_error_fallback(ai_service):
         with patch.object(ai_service, "_get_groq_client") as mock_client_func:
             mock_client = MagicMock()
             mock_client.chat.completions.create.side_effect = Exception(
-                "429: Rate limit reached for model llama-3.3-70b-versatile"
+                "429: Rate limit reached for model openai/gpt-oss-120b"
             )
             mock_client_func.return_value = mock_client
 
@@ -80,3 +85,6 @@ def test_groq_tool_calling_flow(ai_service):
             assert len(tools) == 1
             assert tools[0]["tool"] == "lookup_order"
             assert "ORD-1001" in reply
+            # Verify request was sent with openai/gpt-oss-120b model
+            _, kwargs = mock_client.chat.completions.create.call_args_list[0]
+            assert kwargs["model"] == "openai/gpt-oss-120b"
