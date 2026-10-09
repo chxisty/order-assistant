@@ -2,6 +2,10 @@
 
 An intelligent full-stack e-commerce workspace for order dataset tracking, querying, and sales analytics built with **Next.js 16**, **TypeScript**, **Tailwind CSS**, **Python FastAPI**, **Pandas**, and **Google Gemini API** with genuine function calling.
 
+- 🌐 **Live Website:** [https://order-assistant-lemon.vercel.app/](https://order-assistant-lemon.vercel.app/)
+- 🐙 **GitHub Repository:** [https://github.com/chxisty/order-assistant](https://github.com/chxisty/order-assistant)
+- ⚙️ **Backend API Documentation:** [https://order-assistant-3owc.onrender.com/docs](https://order-assistant-3owc.onrender.com/docs)
+
 ---
 
 ## 🌟 Key Features
@@ -50,7 +54,7 @@ order-assistant/
 │       └── test_fallback.py     # Fallback engine & rate-limit error handler tests
 ├── frontend/
 │   ├── src/
-│   │   ├── app/               # Next.js App Router (page.tsx, layout.tsx, globals.css)
+│   │   ├── app/               # Next.js App Router (page.tsx, layout.tsx, globals.css, icon.png)
 │   │   ├── components/        # Sidebar, TopHeader, WelcomeHero, KpiCardsSection, SalesAnalyticsPreview,
 │   │   │                      # QuickActions, AiSalesInsightsCard, OrderLookupView, Dashboard, ChatMessageItem, ChatInput
 │   │   ├── context/           # ThemeContext (Light & Dark theme state & persistence)
@@ -79,7 +83,7 @@ The backend uses `python-dotenv` to automatically load environment variables fro
 | `OPENAI_API_KEY` | Backend (Optional) | OpenAI API key if using OpenAI backend option | `sk-proj-your-key-here` |
 | `OPENAI_MODEL` | Backend (Optional) | OpenAI model identifier | `gpt-4o-mini` |
 | `CSV_PATH` | Backend | Path to the order dataset CSV file | `data/orders.csv` |
-| `NEXT_PUBLIC_BACKEND_URL` | Frontend | Public API base URL for the FastAPI backend | `http://localhost:8000` |
+| `NEXT_PUBLIC_BACKEND_URL` | Frontend | Public API base URL for the FastAPI backend | `https://order-assistant-3owc.onrender.com` |
 
 > ⚠️ **Security Note:** Never commit actual API keys or `.env` files to Git repositories. Configure environment variables in Render and Vercel deployment dashboards.
 
@@ -184,31 +188,20 @@ npm run dev
 
 ---
 
-## 🌐 Production Deployment Guide
+## 🌐 Live Production Deployments
 
-### Option A: Backend Web Service (Render)
+- 🌐 **Live Web Application (Vercel):** [https://order-assistant-lemon.vercel.app/](https://order-assistant-lemon.vercel.app/)
+- ⚙️ **Backend Web Service (Render):** [https://order-assistant-3owc.onrender.com](https://order-assistant-3owc.onrender.com)
+- 📖 **Swagger API Documentation:** [https://order-assistant-3owc.onrender.com/docs](https://order-assistant-3owc.onrender.com/docs)
 
-1. Sign in to [Render](https://dashboard.render.com/) and create a **New Web Service**.
-2. Connect your GitHub repository `chxisty/order-assistant`.
-3. Configure settings according to `render.yaml`:
-   - **Environment**: Python 3
-   - **Build Command**: `pip install -r backend/requirements.txt`
-   - **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-4. Add **Environment Variables** in Render settings:
-   - `GEMINI_API_KEY`: `your_actual_gemini_api_key`
-   - `GEMINI_MODEL`: `gemini-2.5-flash`
-   - `CSV_PATH`: `data/orders.csv`
-5. Deploy Web Service and copy your public backend URL (e.g. `https://order-assistant-backend.onrender.com`).
+### Deployment Configuration Summary
 
----
+1. **Backend Web Service (Render)**:
+   - Configured via `render.yaml` with Python 3 environment.
+   - Build command: `pip install -r backend/requirements.txt`
+   - Start command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+   - Configured variables: `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-2.5-flash`, `CSV_PATH=data/orders.csv`.
 
-### Option B: Frontend Web App (Vercel)
-
-1. Sign in to [Vercel](https://vercel.com/) and click **Add New Project**.
-2. Import repository `chxisty/order-assistant`.
-3. Set **Root Directory** to `frontend`.
-4. Add **Environment Variable**:
-   - `NEXT_PUBLIC_BACKEND_URL`: `https://order-assistant-backend.onrender.com` (your Render backend URL)
-5. Click **Deploy**.
-
-> 📌 **Deployment Status Note:** Render and Vercel setup instructions are provided for cloud hosting. Ensure environment variables (`GEMINI_API_KEY` on Render and `NEXT_PUBLIC_BACKEND_URL` on Vercel) are properly configured in production project settings.
+2. **Frontend Web App (Vercel)**:
+   - Configured with `frontend` root directory.
+   - Environment variable: `NEXT_PUBLIC_BACKEND_URL=https://order-assistant-3owc.onrender.com`.

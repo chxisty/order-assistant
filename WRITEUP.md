@@ -1,142 +1,112 @@
 # Technical Architecture & Assessment Writeup
 
-**Project Name:** AI Order Assistant  
-**Author:** AI Fellowship Candidate  
+**Project Name:** Order Assistant — AI E-Commerce Analytics Workspace  
+**Live Web App:** [https://order-assistant-lemon.vercel.app/](https://order-assistant-lemon.vercel.app/)  
+**Backend API Docs:** [https://order-assistant-3owc.onrender.com/docs](https://order-assistant-3owc.onrender.com/docs)  
+**GitHub Repository:** [https://github.com/chxisty/order-assistant](https://github.com/chxisty/order-assistant)  
 **Date:** October 2026  
 
 ---
 
 ## 1. System Architecture
 
-The AI Order Assistant is built as a decoupled, full-stack web application designed for interactive natural-language data querying and analytics over order records.
+The AI Order Assistant is built as a decoupled, full-stack web application designed for interactive natural-language data querying, order dataset lookup, and executive sales analytics over order records.
 
 ```mermaid
 graph TD
-    User([User / Web Browser]) <--> Frontend[Next.js 16 + Tailwind CSS Frontend]
-    Frontend <-->|REST API POST /chat| Backend[FastAPI Backend Server]
+    User([User / Web Browser]) <--> Frontend[Next.js 16 + Tailwind CSS v4 Frontend]
+    Frontend <-->|REST API /chat & /api/*| Backend[FastAPI Backend Server]
     Backend <--> DataEngine[OrderDataService / Pandas Engine]
-    Backend <-->|Tool Specs & Messages| OpenAI[OpenAI API gpt-4o-mini]
-    OpenAI -->|Tool Call Selection| ToolHandler[OrderToolsHandler]
+    Backend <-->|Tool Specs & Messages| Gemini[Google Gen AI SDK gemini-2.5-flash]
+    Gemini -->|Function Call Selection| ToolHandler[OrderToolsHandler]
     ToolHandler --> DataEngine
     DataEngine -->|CSV Dataset| OrdersCSV[(data/orders.csv)]
 ```
 
 ### Architectural Components:
 
-1. **Frontend Layer (Next.js 16 / TypeScript / Tailwind CSS)**:
-   - Client-side application rendering a responsive chat interface.
-   - Built-in conversation state management, message copy functionality, error alerts, and example query prompts.
-   - Leverages `react-markdown` and `remark-gfm` to format data tables, lists, and bold statistics cleanly.
-   - Displays real-time connection status (`/health`) and tool invocation badges for full transparency into AI decision-making.
+1. **Frontend Layer (Next.js 16 / TypeScript / Tailwind CSS v4)**:
+   - Modern, dark-themed SaaS workspace rendering a responsive collapsible left sidebar (`#0D1428`), top navigation header with global search, welcome hero card, 4 dynamic KPI cards, a 2-column analytics preview (monthly area chart & status donut chart), quick actions, order lookup inspector, and interactive AI chat.
+   - Built-in theme state management (`ThemeContext`) supporting Dark Navy (`#080D1B`) and Light themes with `localStorage` persistence.
+   - Uses `recharts` for visual data charts and `react-markdown` with `remark-gfm` to format data tables, lists, and executive summaries cleanly.
+   - Displays real-time backend connection status (`/health`), loaded order counts (`60 Orders`), active model indicators (`Gemini AI`), and tool invocation badges.
 
 2. **Backend Service Layer (Python FastAPI / Uvicorn)**:
-   - High-throughput asynchronous REST API exposing `POST /chat` and `GET /health`.
-   - Strict request body validation via Pydantic (`ChatRequest`, `ChatMessage`).
-   - CORS middleware configured for secure cross-origin communication between Vercel frontend and Render backend.
+   - Asynchronous REST API exposing `/health`, `/chat` (`/api/chat`), `/api/dashboard/stats`, `/api/dashboard/insights`, and `/api/orders/{order_id}`.
+   - Strict request body validation via Pydantic (`ChatRequest`, `ChatMessage`, `DashboardFilterRequest`).
+   - CORS middleware enabled for secure cross-origin communication between the Vercel frontend and Render backend.
 
 3. **Data Service Layer (`OrderDataService` / Pandas)**:
-   - In-memory Pandas DataFrame loaded from `data/orders.csv`.
-   - Normalizes data types (string cleaning, datetime conversion, numeric coercions).
-   - Provides deterministic computational methods: `lookup_order`, `filter_orders`, and `analyze_orders`.
+   - In-memory Pandas DataFrame initialized from `data/orders.csv` (60 verified order records).
+   - Normalizes data types (string trimming, datetime parsing, numeric coercions).
+   - Provides deterministic computational tools: `lookup_order`, `filter_orders`, `analyze_orders`, and `get_dashboard_stats`.
 
 4. **AI & Function Calling Layer (`AIService` & `OrderToolsHandler`)**:
-   - Manages the OpenAI Chat Completion tool loop.
-   - Defines strict JSON Schema specifications for functions (`OPENAI_TOOLS`).
-   - Routes model function calls directly to `OrderDataService` methods, ensuring all calculations are calculated dynamically from data without hallucination.
+   - Manages Google Gen AI SDK (`google-genai` v2.29.0) tool-calling loops using model `gemini-2.5-flash`.
+   - Defines strict tool specifications (`GEMINI_TOOLS`) for `lookup_order`, `filter_orders`, and `analyze_orders`.
+   - Routes model function calls directly to `OrderDataService` computational methods, ensuring all financial statistics and order details are calculated directly from verified data without hallucination.
 
 ---
 
-## 2. OpenAI Tool Calling Implementation
+## 2. Gemini Function Calling Implementation
 
-The application uses genuine OpenAI function calling (`tools` parameter in `chat.completions.create`).
+The backend uses genuine function calling via the official `google-genai` Python SDK.
 
 ### Registered AI Tools:
 
 1. `lookup_order(order_id: str)`:
-   - **Purpose:** Retrieves complete record details for a specific order ID.
+   - **Purpose:** Retrieves complete record details for a specific order ID (e.g. `ORD-1001`).
    - **Handling:** Performs case-insensitive matching and handles missing "ORD-" prefixes (e.g., input "1001" automatically resolves to "ORD-1001").
 
 2. `filter_orders(category?, city?, status?, start_date?, end_date?)`:
-   - **Purpose:** Searches for orders matching combinations of category, city, order status, or date range.
-   - **Output:** Returns matching count, formatted order list, and summary totals.
+   - **Purpose:** Filters orders matching any combination of product category, city, order status, or date range.
+   - **Output:** Returns matching count, formatted record list, and total financial amounts.
 
 3. `analyze_orders(metric: str, category?, city?, status?, month?, year?)`:
    - **Supported Metrics:** `total_revenue`, `avg_order_value`, `order_count`, `customer_ranking`, `top_product`, `category_breakdown`, `city_breakdown`, `status_breakdown`.
-   - **Output:** Aggregated financial statistics, customer spend rankings, or category/city percentage breakdowns.
+   - **Output:** Calculated revenue metrics, customer spend rankings, or category/city percentage breakdowns.
 
-### Tool Execution Loop:
+---
 
-```python
-# Iterative tool calling turn loop in AIService:
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=messages,
-    tools=OPENAI_TOOLS,
-    tool_choice="auto"
-)
+## 3. Guardrails, Safety & Local Fallback Engine
 
-if response.choices[0].message.tool_calls:
-    for tool_call in response.choices[0].message.tool_calls:
-        result = tools_handler.execute_tool(tool_call.function.name, tool_call.function.arguments)
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call.id,
-            "name": tool_call.function.name,
-            "content": json.dumps(result)
-        })
-    # Follow-up request to generate final natural language response
+To guarantee 100% production reliability even during external API downtime:
+
+1. **Deterministic Local Fallback Engine**:
+   - If `GEMINI_API_KEY` is missing, or if Gemini API requests hit rate limits or quota limits, `AIService` seamlessly transitions to an internal rule-based local parser.
+   - The fallback engine parses user intents, invokes the appropriate pandas data tool, and returns verified results clearly labeled with `*(Gemini API Error: Switched to local data engine)*`.
+
+2. **Input Validation & Guardrails**:
+   - Pydantic models reject empty strings and malformed JSON payloads, returning HTTP 400/422 status codes.
+
+3. **Data Integrity & Zero-Hallucination Policy**:
+   - System prompts instruct the model to rely exclusively on tool outputs for financial numbers, order counts, and status reports.
+
+---
+
+## 4. Testing & Verification
+
+The project includes an automated Pytest test suite with **33 passing tests**:
+
+- `backend/tests/test_api.py`: Tests `/health`, valid `/chat` queries, empty payload validation, invalid JSON, and `GET /api/orders/{order_id}` lookup (200 & 404).
+- `backend/tests/test_dashboard.py`: Tests `/api/dashboard/stats` KPI calculations, category/status filters, and `/api/dashboard/insights`.
+- `backend/tests/test_data_service.py`: Tests dataset loading, case-insensitive order lookups, multi-criteria filtering, revenue metrics, and customer spend rankings.
+- `backend/tests/test_fallback.py`: Tests status breakdown parser, rate-limit fallback transitions, and Gemini tool execution flow.
+
+```bash
+# Run test suite
+.\backend\venv\Scripts\python.exe -m pytest backend/tests/ -v
+# Result: 33 passed in 3.64s
 ```
 
 ---
 
-## 3. Guardrails, Safety & Error Handling
+## 5. Live Production Deployments
 
-To ensure production stability and reliability:
+- **Frontend (Vercel):** [https://order-assistant-lemon.vercel.app/](https://order-assistant-lemon.vercel.app/)
+  - Deployed as a Next.js App Router application connected to GitHub repository `chxisty/order-assistant`.
+  - Configured with environment variable `NEXT_PUBLIC_BACKEND_URL=https://order-assistant-3owc.onrender.com`.
 
-1. **Input Validation**:
-   - Pydantic models reject empty strings, whitespace-only messages, and payloads exceeding character limits.
-   - API returns structured HTTP 400/422 responses on invalid input.
-
-2. **OpenAI API & Environment Guardrail**:
-   - If `OPENAI_API_KEY` is not set or the OpenAI API experiences downtime (quota limits, network timeout), `AIService` seamlessly transitions to an internal rule-based local parser.
-   - The user is notified gracefully without app crashes or raw stack traces.
-
-3. **Data Integrity & Zero-Hallucination Policy**:
-   - System instructions explicitly direct the AI to rely exclusively on tool outputs for financial numbers, order IDs, and status reports.
-
-4. **Response Capping**:
-   - Order list results in `filter_orders` are capped at 50 records per tool invocation to prevent prompt token bloat while keeping total counts accurate.
-
-5. **Secrets Management**:
-   - Secrets (`OPENAI_API_KEY`) are restricted to backend environment variables and never exposed to frontend code or committed to Git (`.gitignore` enforced).
-
----
-
-## 4. Deployment Strategy
-
-- **Backend (Render)**:
-  - Deployed as a Python Web Service.
-  - Controlled via `render.yaml` and `backend/Procfile`.
-  - Serves API at port `$PORT` via Uvicorn.
-  
-- **Frontend (Vercel)**:
-  - Deployed as a Next.js App Router application.
-  - `NEXT_PUBLIC_BACKEND_URL` environment variable points to the Render backend domain.
-
----
-
-## 5. Potential Future Improvements
-
-1. **Database Integration**: Replace CSV with PostgreSQL + SQLAlchemy / Prisma to handle millions of records with index-accelerated queries.
-2. **File Upload & Custom Datasets**: Allow users to drag and drop custom order CSV files in the frontend UI for instant AI analytics.
-3. **Interactive Charts**: Render visual bar charts, line graphs, and pie charts using Chart.js or Recharts alongside Markdown text responses.
-4. **Export & Reporting**: Add a button to export query results and analytics summaries to PDF or Excel format.
-5. **Caching Layer**: Implement Redis caching for frequent analytical metrics (e.g. total monthly revenue) to reduce computational latency.
-
----
-
-## 6. AI Tools Used
-
-During the development of this project, the following AI tools and workflows were utilized:
-- **Google Antigravity Agentic Assistant**: Used for iterative full-stack planning, backend architecture implementation, pandas query formulation, Pytest test creation, and Next.js frontend design.
-- **OpenAI GPT-4o-mini**: Integrated directly into the application backend as the intelligence engine responsible for tool selection, argument extraction, and natural language synthesis.
+- **Backend (Render):** [https://order-assistant-3owc.onrender.com](https://order-assistant-3owc.onrender.com)
+  - Deployed as a Python 3 Web Service configured via `render.yaml`.
+  - Interactive API Swagger documentation: [https://order-assistant-3owc.onrender.com/docs](https://order-assistant-3owc.onrender.com/docs).
