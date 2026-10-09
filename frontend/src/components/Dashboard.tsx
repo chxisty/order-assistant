@@ -246,7 +246,7 @@ export function Dashboard() {
                 ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
                 : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
             }`}>
-              {insights.is_ai_generated ? '🤖 Gemini Model Generated' : '📊 Deterministic Data Engine'}
+              {insights.is_ai_generated ? '🤖 Groq Model Generated' : '📊 Deterministic Data Engine'}
             </span>
           </div>
 

@@ -96,7 +96,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <span className="text-slate-600 dark:text-slate-600 light:text-slate-400">|</span>
               <span className="text-slate-400 dark:text-slate-400 light:text-slate-600">{health.orders_loaded} Orders</span>
               <span className="text-slate-600 dark:text-slate-600 light:text-slate-400">|</span>
-              <span className="text-cyan-400 font-medium">{health.model || "Gemini AI"}</span>
+              <span className="text-cyan-400 font-medium">{health.model || "Groq AI"}</span>
             </div>
           ) : (
             <div className="hidden lg:flex items-center gap-2 bg-amber-950/40 text-amber-300 px-3 py-1.5 rounded-xl border border-amber-800/50 text-xs">

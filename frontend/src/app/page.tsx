@@ -274,7 +274,7 @@ function AppContent() {
                     </h2>
                   </div>
                   <span className="text-xs text-slate-400">
-                    Function Calling Active &bull; Gemini 2.5 Flash
+                    Function Calling Active &bull; {health?.model ? health.model : 'llama-3.3-70b-versatile'}
                   </span>
                 </div>
 
@@ -290,7 +290,7 @@ function AppContent() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                        <span>Analyzing orders with Gemini...</span>
+                        <span>Analyzing orders with Groq AI...</span>
                       </div>
                     </div>
                   )}

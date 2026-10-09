@@ -23,7 +23,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({ onNavigate }) => {
     {
       id: 'chat',
       title: 'Ask AI Assistant',
-      description: 'Ask Gemini AI complex order questions with automatic pandas tool calling.',
+      description: 'Ask Groq AI complex order questions with automatic pandas tool calling.',
       icon: Bot,
       tab: 'chat' as NavTab,
       gradient: 'from-purple-600/20 via-purple-500/10 to-transparent',

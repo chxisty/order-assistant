@@ -34,12 +34,22 @@ class AIService:
     @property
     def groq_api_key(self) -> str:
         """Dynamically resolve GROQ_API_KEY from environment."""
-        return os.getenv("GROQ_API_KEY", "").strip()
+        return os.getenv("GROQ_API_KEY", "").strip().strip('"').strip("'")
 
     @property
     def groq_base_url(self) -> str:
-        """Dynamically resolve Groq API Base URL from environment."""
-        return os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").strip()
+        """
+        Dynamically resolve Groq API Base URL from environment.
+        Ensures base URL is clean for official Groq SDK (strips trailing /openai/v1 suffix if present,
+        as the SDK appends /openai/v1/chat/completions automatically).
+        """
+        raw_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com").strip().strip('"').strip("'")
+        cleaned = raw_url.rstrip("/")
+        if cleaned.endswith("/openai/v1"):
+            cleaned = cleaned[:-10].rstrip("/")
+        elif cleaned.endswith("/v1"):
+            cleaned = cleaned[:-3].rstrip("/")
+        return cleaned or "https://api.groq.com"
 
     @property
     def api_key(self) -> str:
@@ -50,7 +60,8 @@ class AIService:
     def model_name(self) -> str:
         """Dynamically resolve active Groq model identifier from environment."""
         if self.groq_api_key:
-            return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+            raw_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip().strip('"').strip("'")
+            return raw_model or "llama-3.3-70b-versatile"
         return "local-fallback"
 
     def _get_groq_client(self) -> Groq:
@@ -73,13 +84,13 @@ class AIService:
         return "*(Groq API Key Not Configured: Using local data engine)*\n\n" + reply, tools
 
     def _process_chat_groq(self, user_message: str, history: List[Dict[str, str]]) -> Tuple[str, List[Dict[str, Any]]]:
-        """Execute chat using official Groq SDK with model llama-3.3-70b-versatile and tool calling."""
+        """Execute chat using official Groq SDK with configured model and tool calling."""
         try:
             client = self._get_groq_client()
         except Exception as e:
             logger.warning(f"Could not initialize Groq client: {e}. Falling back to local data engine.")
             reply, tools = self._local_fallback_process(user_message)
-            return f"*(Groq Initialization Error [{type(e).__name__}]: Using local data engine)*\n\n" + reply, tools
+            return "*(Groq API Initialization Error: Using local data engine)*\n\n" + reply, tools
 
         # Build initial messages array starting with system prompt
         messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -95,32 +106,50 @@ class AIService:
         executed_tools: List[Dict[str, Any]] = []
         max_turns = 5
 
+        # Build model candidates list for seamless fallback if primary model fails
+        primary_model = self.model_name
+        model_candidates = [primary_model]
+        for fallback_m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+            if fallback_m not in model_candidates:
+                model_candidates.append(fallback_m)
+
         for turn in range(max_turns):
-            try:
-                response = client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=GROQ_TOOLS,
-                    tool_choice="auto",
-                    temperature=0.2
-                )
-            except Exception as api_err:
-                err_type = type(api_err).__name__
+            response = None
+            last_error = None
+
+            for m_candidate in model_candidates:
+                try:
+                    response = client.chat.completions.create(
+                        model=m_candidate,
+                        messages=messages,
+                        tools=GROQ_TOOLS,
+                        tool_choice="auto",
+                        temperature=0.2
+                    )
+                    if response:
+                        break
+                except Exception as api_err:
+                    last_error = api_err
+                    err_str = str(api_err).lower()
+                    # Only retry fallback model if error is 404 / model_not_found
+                    if "404" not in err_str and "not_found" not in err_str and "unknown" not in err_str:
+                        break
+
+            if response is None:
+                api_err = last_error or Exception("Unknown Groq API error")
                 err_str = str(api_err)
 
                 # Safe logging: redact sensitive key strings
                 safe_err_log = re.sub(r'(gsk_|sk-|AIza)[a-zA-Z0-9_-]+', '[REDACTED_KEY]', err_str)
                 logger.error(f"Groq API Error: {safe_err_log}")
 
-                # Precise error classification
+                # Clear, user-friendly error messages without exposing raw provider exception details
                 if "401" in err_str or "invalid_api_key" in err_str.lower() or "authentication" in err_str.lower():
-                    note_prefix = f"*(Groq API Error: Invalid API Key [{err_type}]: Switched to local data engine)*\n\n"
-                elif "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
-                    note_prefix = f"*(Groq API Rate Limit / Quota Exceeded [{err_type}]: Switched to local data engine)*\n\n"
-                elif "404" in err_str or "model_not_found" in err_str.lower():
-                    note_prefix = f"*(Groq API Error: Model Not Found [{err_type}]: Switched to local data engine)*\n\n"
+                    note_prefix = "*(Groq API Authentication Error: Switched to local data engine)*\n\n"
+                elif "429" in err_str or "rate" in err_str.lower() or "quota" in err_str.lower():
+                    note_prefix = "*(Groq API Rate Limit Exceeded: Switched to local data engine)*\n\n"
                 else:
-                    note_prefix = f"*(Groq API Error [{err_type}]: Switched to local data engine)*\n\n"
+                    note_prefix = "*(Groq API Service Notice: Switched to local data engine)*\n\n"
 
                 fallback_reply, fallback_tools = self._local_fallback_process(user_message)
                 return note_prefix + fallback_reply, fallback_tools

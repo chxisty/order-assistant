@@ -48,7 +48,7 @@ export const AiSalesInsightsCard: React.FC = () => {
             <h3 className="text-base font-bold text-white dark:text-white light:text-slate-900 flex items-center gap-2">
               AI Sales Insights
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold">
-                Powered by Gemini
+                Powered by Groq
               </span>
             </h3>
             <p className="text-xs text-slate-300 dark:text-slate-300 light:text-slate-600 mt-0.5">
@@ -91,7 +91,7 @@ export const AiSalesInsightsCard: React.FC = () => {
           <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
             <span className="text-[11px] font-semibold text-purple-400 flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5" />
-              {insights.provider === 'gemini' ? 'Gemini AI Analysis' : 'Local Data Engine Insights'}
+              {insights.provider === 'groq' || insights.is_ai_generated ? 'Groq AI Analysis' : 'Local Data Engine Insights'}
             </span>
             <span className="text-[10px] text-slate-500">
               {new Date(insights.timestamp * 1000).toLocaleTimeString()}

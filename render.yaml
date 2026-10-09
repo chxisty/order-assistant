@@ -13,6 +13,6 @@ services:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: GROQ_BASE_URL
-        value: https://api.groq.com/openai/v1
+        value: https://api.groq.com
       - key: CSV_PATH
         value: data/orders.csv
